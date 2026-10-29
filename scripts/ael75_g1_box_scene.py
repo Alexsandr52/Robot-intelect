@@ -73,8 +73,6 @@ def main() -> None:
     """Simulate a standing G1 next to a box resting on a waist-height table."""
     args = parse_args()
 
-    from pxr import Gf, UsdPhysics
-
     import isaaclab.sim as sim_utils
     from isaaclab.app import launch_simulation
     from isaaclab.assets import AssetBaseCfg, RigidObjectCfg
@@ -150,6 +148,8 @@ def main() -> None:
         )
 
     with launch_simulation(cfg=PhysicsCfg(), launcher_args=args) as physics_cfg:
+        from pxr import Gf, UsdPhysics
+
         sim_cfg = sim_utils.SimulationCfg(dt=1.0 / 120.0, device=args.device, physics=physics_cfg)
         sim = SimulationContext(sim_cfg)
         sim.set_camera_view(eye=(1.55, 1.75, 1.35), target=(0.38, 0.0, 0.82))
