@@ -1,7 +1,5 @@
 """Launch a bounded G1 and small-box contact scene using Arena's robot asset."""
 
-from __future__ import annotations
-
 import argparse
 
 BOX_SIZE_M = (0.09, 0.04, 0.06)
@@ -23,6 +21,16 @@ def box_diagonal_inertia_kg_m2() -> tuple[float, float, float]:
     )
 
 
+def sustained_contact_samples(
+    contact_forces_n: list[float], minimum_force_n: float, window_steps: int
+) -> tuple[int, int]:
+    """Count above-threshold samples in a complete trailing contact window."""
+    if window_steps < 1 or len(contact_forces_n) < window_steps:
+        raise ValueError("A positive contact window must fit within the available force samples.")
+    window = contact_forces_n[-window_steps:]
+    return sum(force_n >= minimum_force_n for force_n in window), len(window)
+
+
 def parse_args() -> argparse.Namespace:
     """Parse bounded rollout and simulator launcher arguments."""
     from isaaclab.app import add_launcher_args
@@ -31,11 +39,33 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--steps", type=int, default=600, help="Number of simulation steps (default: 600).")
     parser.add_argument("--log-interval", type=int, default=120, help="Contact log interval in steps.")
     parser.add_argument("--max-box-drift-m", type=float, default=0.005, help="Allowed box displacement in meters.")
+    parser.add_argument(
+        "--contact-window-steps",
+        type=int,
+        default=60,
+        help="Trailing simulation steps used to check sustained table contact (default: 60).",
+    )
+    parser.add_argument(
+        "--min-contact-fraction",
+        type=float,
+        default=0.9,
+        help="Required fraction of the trailing window above the contact-force threshold (default: 0.9).",
+    )
     parser.add_argument("--physics", default="isaacsim_physx", choices=["isaacsim_physx"])
     add_launcher_args(parser)
     args = parser.parse_args()
-    if args.steps < 1 or args.log_interval < 1 or args.max_box_drift_m <= 0:
-        parser.error("steps and log interval must be positive; box drift tolerance must be greater than zero.")
+    if (
+        args.steps < 1
+        or args.log_interval < 1
+        or args.max_box_drift_m <= 0
+        or args.contact_window_steps < 1
+        or args.contact_window_steps > args.steps
+        or not 0.0 < args.min_contact_fraction <= 1.0
+    ):
+        parser.error(
+            "steps, log interval, and contact window must be positive; contact window cannot exceed steps; "
+            "box drift tolerance must be greater than zero; minimum contact fraction must be in (0, 1]."
+        )
     return args
 
 
@@ -147,17 +177,32 @@ def main() -> None:
         print(f"[AEL-75] box_inertia_kg_m2={box_diagonal_inertia_kg_m2()}")
         print(f"[AEL-75] box_friction_static_dynamic={BOX_FRICTION}")
 
-        table_contact_force_n = 0.0
+        minimum_table_contact_n = BOX_MASS_KG * 9.81 * 0.5
+        table_contact_forces_n = []
         for step in range(1, args.steps + 1):
             scene.write_data_to_sim()
             sim.step()
             scene.update(sim_cfg.dt)
+            table_normal_force_matrix_w = scene["box_contact"].data.normal_force_matrix_w
+            if table_normal_force_matrix_w is None:
+                raise RuntimeError("The box contact sensor did not report table-filtered normal forces.")
+            table_contact_force_n = table_normal_force_matrix_w.torch.norm(dim=-1).max().item()
+            table_contact_forces_n.append(table_contact_force_n)
             if step % args.log_interval == 0 or step == args.steps:
-                table_normal_force_matrix_w = scene["box_contact"].data.normal_force_matrix_w
-                if table_normal_force_matrix_w is None:
-                    raise RuntimeError("The box contact sensor did not report table-filtered normal forces.")
-                table_contact_force_n = table_normal_force_matrix_w.torch.norm(dim=-1).max().item()
                 print(f"[AEL-75] step={step} box_table_normal_force_n={table_contact_force_n:.3f}")
+
+        sustained_contact_count, sustained_contact_window_size = sustained_contact_samples(
+            table_contact_forces_n,
+            minimum_table_contact_n,
+            args.contact_window_steps,
+        )
+        sustained_contact_fraction = sustained_contact_count / sustained_contact_window_size
+        print(
+            f"[AEL-75] trailing_contact_window_steps={args.contact_window_steps} "
+            f"contact_samples={sustained_contact_count}/{sustained_contact_window_size} "
+            f"contact_fraction={sustained_contact_fraction:.3f} "
+            f"required_fraction={args.min_contact_fraction:.3f}"
+        )
 
         final_box_pos_w = box.data.root_pos_w.torch[0]
         box_drift_m = (final_box_pos_w - initial_box_pos_w).norm().item()
@@ -174,11 +219,11 @@ def main() -> None:
             raise RuntimeError(
                 f"The box moved {box_drift_m:.6f} m; allowed drift is {args.max_box_drift_m:.6f} m."
             )
-        minimum_table_contact_n = BOX_MASS_KG * 9.81 * 0.5
-        if table_contact_force_n < minimum_table_contact_n:
+        if sustained_contact_fraction < args.min_contact_fraction:
             raise RuntimeError(
-                f"Box/table contact was {table_contact_force_n:.3f} N; expected at least "
-                f"{minimum_table_contact_n:.3f} N for a resting box."
+                f"Box/table contact exceeded {minimum_table_contact_n:.3f} N in "
+                f"{sustained_contact_count}/{sustained_contact_window_size} trailing samples "
+                f"({sustained_contact_fraction:.3f}); required fraction is {args.min_contact_fraction:.3f}."
             )
 
 
