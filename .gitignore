@@ -1,0 +1,33 @@
+# Отдельный upstream-клон и локальные окружения
+/IsaacLab/
+/isaac_sc/
+.venv/
+venv/
+.env
+.env.*
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.egg-info/
+build/
+dist/
+
+# Временные результаты и большие генерируемые данные
+/outputs/
+/runs/
+/logs/
+/checkpoints/
+/data/raw/
+/data/processed/
+*.log
+
+# Редакторы и ОС
+.DS_Store
+.idea/
+.vscode/
