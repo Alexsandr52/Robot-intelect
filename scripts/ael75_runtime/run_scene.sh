@@ -13,4 +13,4 @@ export ACCEPT_EULA=Y
 cd /workspaces/isaaclab_arena
 exec ./submodules/IsaacLab/isaaclab.sh -p \
     /workspaces/robot-move/scripts/ael75_g1_box_scene.py \
-    --steps 600 --physics isaacsim_physx --visualizer kit --keep-open --fix-base "$@"
+    --steps 600 --physics isaacsim_physx --visualizer kit --keep-open --view-only "$@"

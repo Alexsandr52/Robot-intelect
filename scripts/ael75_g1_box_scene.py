@@ -40,9 +40,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--log-interval", type=int, default=120, help="Contact log interval in steps.")
     parser.add_argument("--max-box-drift-m", type=float, default=0.005, help="Allowed box displacement in meters.")
     parser.add_argument(
-        "--fix-base",
+        "--view-only",
         action="store_true",
-        help="Fix the robot root for visual inspection; this does not validate free-standing balance.",
+        help="Show the authored scene without advancing physics; requires --keep-open.",
     )
     parser.add_argument(
         "--keep-open",
@@ -69,6 +69,8 @@ def parse_args() -> argparse.Namespace:
         requested_visualizers = requested_visualizers.split(",")
     if args.keep_open and "kit" not in requested_visualizers:
         parser.error("--keep-open requires --visualizer kit.")
+    if args.view_only and not args.keep_open:
+        parser.error("--view-only requires --keep-open.")
     if (
         args.steps < 1
         or args.log_interval < 1
@@ -101,7 +103,6 @@ def main() -> None:
 
     robot_cfg = replace(
         G1_CFG,
-        spawn=replace(G1_CFG.spawn, fix_root_link=args.fix_base),
         prim_path="{ENV_REGEX_NS}/Robot",
         init_state=replace(
             G1_CFG.init_state,
@@ -191,38 +192,44 @@ def main() -> None:
         print(f"[AEL-75] box_size_m={BOX_SIZE_M} box_mass_kg={BOX_MASS_KG}")
         print(f"[AEL-75] box_inertia_kg_m2={box_diagonal_inertia_kg_m2()}")
         print(f"[AEL-75] box_friction_static_dynamic={BOX_FRICTION}")
-        print(f"[AEL-75] base_fixed_diagnostic={args.fix_base}")
+        if args.view_only:
+            import omni.timeline
 
-        minimum_table_contact_n = BOX_MASS_KG * 9.81 * 0.5
-        table_contact_forces_n = []
-        for step in range(1, args.steps + 1):
-            scene.write_data_to_sim()
-            sim.step()
-            scene.update(sim_cfg.dt)
-            table_normal_force_matrix_w = scene["box_contact"].data.normal_force_matrix_w
-            if table_normal_force_matrix_w is None:
-                raise RuntimeError("The box contact sensor did not report table-filtered normal forces.")
-            table_contact_force_n = table_normal_force_matrix_w.torch.norm(dim=-1).max().item()
-            table_contact_forces_n.append(table_contact_force_n)
-            if step % args.log_interval == 0 or step == args.steps:
-                print(f"[AEL-75] step={step} box_table_normal_force_n={table_contact_force_n:.3f}")
+            timeline = omni.timeline.get_timeline_interface()
+            timeline.set_auto_update(False)
+            timeline.stop()
+            print("[AEL-75] view_only=True physics_steps=0; contact metrics were not evaluated.")
+        else:
+            minimum_table_contact_n = BOX_MASS_KG * 9.81 * 0.5
+            table_contact_forces_n = []
+            for step in range(1, args.steps + 1):
+                scene.write_data_to_sim()
+                sim.step()
+                scene.update(sim_cfg.dt)
+                table_normal_force_matrix_w = scene["box_contact"].data.normal_force_matrix_w
+                if table_normal_force_matrix_w is None:
+                    raise RuntimeError("The box contact sensor did not report table-filtered normal forces.")
+                table_contact_force_n = table_normal_force_matrix_w.torch.norm(dim=-1).max().item()
+                table_contact_forces_n.append(table_contact_force_n)
+                if step % args.log_interval == 0 or step == args.steps:
+                    print(f"[AEL-75] step={step} box_table_normal_force_n={table_contact_force_n:.3f}")
 
-        sustained_contact_count, sustained_contact_window_size = sustained_contact_samples(
-            table_contact_forces_n,
-            minimum_table_contact_n,
-            args.contact_window_steps,
-        )
-        sustained_contact_fraction = sustained_contact_count / sustained_contact_window_size
-        print(
-            f"[AEL-75] trailing_contact_window_steps={args.contact_window_steps} "
-            f"contact_samples={sustained_contact_count}/{sustained_contact_window_size} "
-            f"contact_fraction={sustained_contact_fraction:.3f} "
-            f"required_fraction={args.min_contact_fraction:.3f}"
-        )
+            sustained_contact_count, sustained_contact_window_size = sustained_contact_samples(
+                table_contact_forces_n,
+                minimum_table_contact_n,
+                args.contact_window_steps,
+            )
+            sustained_contact_fraction = sustained_contact_count / sustained_contact_window_size
+            print(
+                f"[AEL-75] trailing_contact_window_steps={args.contact_window_steps} "
+                f"contact_samples={sustained_contact_count}/{sustained_contact_window_size} "
+                f"contact_fraction={sustained_contact_fraction:.3f} "
+                f"required_fraction={args.min_contact_fraction:.3f}"
+            )
 
-        final_box_pos_w = box.data.root_pos_w.torch[0]
-        box_drift_m = (final_box_pos_w - initial_box_pos_w).norm().item()
-        print(f"[AEL-75] box_drift_m={box_drift_m:.6f}")
+            final_box_pos_w = box.data.root_pos_w.torch[0]
+            box_drift_m = (final_box_pos_w - initial_box_pos_w).norm().item()
+            print(f"[AEL-75] box_drift_m={box_drift_m:.6f}")
         if robot.num_joints != 43:
             raise RuntimeError(f"Expected G1 29-DoF + Dex3 14-DoF (43 joints), got {robot.num_joints}.")
         if len(hand_joint_names) != 14:
@@ -231,22 +238,23 @@ def main() -> None:
             side_joint_count = sum(name.startswith(f"{hand_side}_hand_") for name in hand_joint_names)
             if side_joint_count != 7:
                 raise RuntimeError(f"Expected 7 {hand_side} Dex3 joints, got {side_joint_count}.")
-        if box_drift_m > args.max_box_drift_m:
-            raise RuntimeError(
-                f"The box moved {box_drift_m:.6f} m; allowed drift is {args.max_box_drift_m:.6f} m."
-            )
-        if sustained_contact_fraction < args.min_contact_fraction:
-            raise RuntimeError(
-                f"Box/table contact exceeded {minimum_table_contact_n:.3f} N in "
-                f"{sustained_contact_count}/{sustained_contact_window_size} trailing samples "
-                f"({sustained_contact_fraction:.3f}); required fraction is {args.min_contact_fraction:.3f}."
-            )
+        if not args.view_only:
+            if box_drift_m > args.max_box_drift_m:
+                raise RuntimeError(
+                    f"The box moved {box_drift_m:.6f} m; allowed drift is {args.max_box_drift_m:.6f} m."
+                )
+            if sustained_contact_fraction < args.min_contact_fraction:
+                raise RuntimeError(
+                    f"Box/table contact exceeded {minimum_table_contact_n:.3f} N in "
+                    f"{sustained_contact_count}/{sustained_contact_window_size} trailing samples "
+                    f"({sustained_contact_fraction:.3f}); required fraction is {args.min_contact_fraction:.3f}."
+                )
 
         if args.keep_open:
             import omni.kit.app
 
             kit_app = omni.kit.app.get_app()
-            print("[AEL-75] Scene validation passed. Close the Isaac Sim window to finish viewing.")
+            print("[AEL-75] Scene is open. Close the Isaac Sim window to finish viewing.")
             while kit_app.is_running():
                 kit_app.update()
 
