@@ -40,6 +40,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--log-interval", type=int, default=120, help="Contact log interval in steps.")
     parser.add_argument("--max-box-drift-m", type=float, default=0.005, help="Allowed box displacement in meters.")
     parser.add_argument(
+        "--fix-base",
+        action="store_true",
+        help="Fix the robot root for visual inspection; this does not validate free-standing balance.",
+    )
+    parser.add_argument(
         "--keep-open",
         action="store_true",
         help="Keep the Kit scene visible after validation until its window is closed.",
@@ -96,11 +101,11 @@ def main() -> None:
 
     robot_cfg = replace(
         G1_CFG,
+        spawn=replace(G1_CFG.spawn, fix_root_link=args.fix_base),
         prim_path="{ENV_REGEX_NS}/Robot",
         init_state=replace(
             G1_CFG.init_state,
             pos=(0.0, 0.0, 0.78),
-            rot=(0.0, 0.0, 0.0, 1.0),
         ),
     )
 
@@ -186,6 +191,7 @@ def main() -> None:
         print(f"[AEL-75] box_size_m={BOX_SIZE_M} box_mass_kg={BOX_MASS_KG}")
         print(f"[AEL-75] box_inertia_kg_m2={box_diagonal_inertia_kg_m2()}")
         print(f"[AEL-75] box_friction_static_dynamic={BOX_FRICTION}")
+        print(f"[AEL-75] base_fixed_diagnostic={args.fix_base}")
 
         minimum_table_contact_n = BOX_MASS_KG * 9.81 * 0.5
         table_contact_forces_n = []
