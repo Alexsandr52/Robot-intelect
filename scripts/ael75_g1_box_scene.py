@@ -197,7 +197,7 @@ def main() -> None:
 
             timeline = omni.timeline.get_timeline_interface()
             timeline.set_auto_update(False)
-            timeline.stop()
+            timeline.pause()
             print("[AEL-75] view_only=True physics_steps=0; contact metrics were not evaluated.")
         else:
             minimum_table_contact_n = BOX_MASS_KG * 9.81 * 0.5
@@ -252,7 +252,12 @@ def main() -> None:
 
         if args.keep_open:
             import omni.kit.app
+            import omni.timeline
 
+            # Preserve the final state and PhysX views while keeping the UI responsive.
+            timeline = omni.timeline.get_timeline_interface()
+            timeline.set_auto_update(False)
+            timeline.pause()
             kit_app = omni.kit.app.get_app()
             print("[AEL-75] Scene is open. Close the Isaac Sim window to finish viewing.")
             while kit_app.is_running():
