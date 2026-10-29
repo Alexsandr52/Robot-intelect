@@ -1,6 +1,8 @@
 # Отдельный upstream-клон и локальные окружения
 /IsaacLab/
 /isaac_sc/
+/IsaacLab-Arena/
+/LeRobot/
 .venv/
 venv/
 .env
