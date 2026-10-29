@@ -40,6 +40,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--log-interval", type=int, default=120, help="Contact log interval in steps.")
     parser.add_argument("--max-box-drift-m", type=float, default=0.005, help="Allowed box displacement in meters.")
     parser.add_argument(
+        "--keep-open",
+        action="store_true",
+        help="Keep the Kit scene visible after validation until its window is closed.",
+    )
+    parser.add_argument(
         "--contact-window-steps",
         type=int,
         default=60,
@@ -54,6 +59,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--physics", default="isaacsim_physx", choices=["isaacsim_physx"])
     add_launcher_args(parser)
     args = parser.parse_args()
+    requested_visualizers = args.visualizer
+    if isinstance(requested_visualizers, str):
+        requested_visualizers = requested_visualizers.split(",")
+    if args.keep_open and "kit" not in requested_visualizers:
+        parser.error("--keep-open requires --visualizer kit.")
     if (
         args.steps < 1
         or args.log_interval < 1
@@ -225,6 +235,14 @@ def main() -> None:
                 f"{sustained_contact_count}/{sustained_contact_window_size} trailing samples "
                 f"({sustained_contact_fraction:.3f}); required fraction is {args.min_contact_fraction:.3f}."
             )
+
+        if args.keep_open:
+            import omni.kit.app
+
+            kit_app = omni.kit.app.get_app()
+            print("[AEL-75] Scene validation passed. Close the Isaac Sim window to finish viewing.")
+            while kit_app.is_running():
+                kit_app.update()
 
 
 if __name__ == "__main__":

@@ -47,22 +47,14 @@ ARENA_ROOT="$ROOT/IsaacLab-Arena"
 ARENA_CONTAINER=$(docker ps --filter "volume=$(git -C "$ARENA_ROOT" rev-parse --show-toplevel)" --format '{{.Names}}' | head -n 1)
 test -n "$ARENA_CONTAINER" || { echo 'Не найден запущенный Arena-контейнер для этого checkout' >&2; exit 1; }
 docker exec "$ARENA_CONTAINER" su "$(id -un)" -c \
-  'cd /workspaces/isaaclab_arena && \
-   usd_utils=$(find /isaac-sim/extscache -path "*/bin/libusd_usdUtils.so" -print -quit) && \
-   physx_schema=$(find /isaac-sim/extscache -path "*/bin/libphysicsSchemaTools.so" -print -quit) && \
-   test -n "$usd_utils" && test -n "$physx_schema" && \
-   LD_LIBRARY_PATH="$(dirname "$usd_utils"):$(dirname "$physx_schema"):${LD_LIBRARY_PATH:-}" \
-   PYTHONPATH=/workspaces/robot-move/scripts/ael75_runtime/pxr_preload \
-   OMNI_KIT_ACCEPT_EULA=YES ACCEPT_EULA=Y \
-   ./submodules/IsaacLab/isaaclab.sh -p /workspaces/robot-move/scripts/ael75_g1_box_scene.py \
-   --steps 600 --physics isaacsim_physx --visualizer none'
+  'bash /workspaces/robot-move/scripts/ael75_runtime/run_scene.sh'
 ```
 
-Если текущая сессия ещё не подхватила группу `docker`, откройте вложенный shell командой `newgrp docker` или выйдите из системы и войдите снова. Runtime workaround добавляет библиотеки USD/PhysX в поиск динамического загрузчика и ставит `pxr` из Isaac Sim выше пакета `usd-exchange` из venv.
+Если текущая сессия ещё не подхватила группу `docker`, откройте вложенный shell командой `newgrp docker` или выйдите из системы и войдите снова. Скрипт запуска добавляет библиотеки USD/PhysX в поиск динамического загрузчика и ставит `pxr` из Isaac Sim выше пакета `usd-exchange` из venv.
 
 Если контейнер ещё не запущен, сначала проверьте доступность GPU командой `nvidia-smi`, затем из корня checkout Arena выполните `./docker/run_docker.sh` и оставьте терминал с контейнером открытым. Этот launcher создаёт/запускает Arena-контейнер и монтирует checkout в указанный выше путь, включая скрипт сцены. Не запускайте повторно launcher для уже работающей копии.
 
-Для запуска без визуализатора используется `--visualizer none`; флаг `--headless` этот launcher не принимает. Можно переопределить `--steps`, `--contact-window-steps`, `--min-contact-fraction`, `--max-box-drift-m` и `--log-interval`. Окно должно содержать хотя бы один шаг и не превышать `--steps`; короткий прогон допустим, если окно умещается в число шагов (например, `--steps 120` с окном по умолчанию `60`). Минимальная доля контакта должна лежать в `(0, 1]`; некорректные параметры останавливают запуск с сообщением об ошибке. Не запускайте второй экземпляр контейнера, если подходящего уже работающего нет: сначала проверьте инструкцию [подготовки Arena](environment.md) и доступность ресурсов GPU. Не останавливайте чужие GPU-процессы.
+`--visualizer kit --keep-open` показывает сцену в окне Isaac Sim после проверки; закройте окно, когда закончите просмотр. Для запуска без визуализатора используйте `--visualizer none`; флаг `--headless` этот launcher не принимает. Можно переопределить `--steps`, `--contact-window-steps`, `--min-contact-fraction`, `--max-box-drift-m` и `--log-interval`. Окно должно содержать хотя бы один шаг и не превышать `--steps`; короткий прогон допустим, если окно умещается в число шагов (например, `--steps 120` с окном по умолчанию `60`). Минимальная доля контакта должна лежать в `(0, 1]`; некорректные параметры останавливают запуск с сообщением об ошибке. Не запускайте второй экземпляр контейнера, если подходящего уже работающего нет: сначала проверьте инструкцию [подготовки Arena](environment.md) и доступность ресурсов GPU. Не останавливайте чужие GPU-процессы.
 
 ## Статус проверки и следующие шаги
 
